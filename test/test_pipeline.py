@@ -33,6 +33,12 @@ def test_restricted_docs_never_returned_to_unprivileged_user(tmp_path):
             assert "partners" not in hit.chunk.acl or "all" in hit.chunk.acl
 
 
+def test_missing_groups_cannot_reveal_private_documents(tmp_path):
+    index, _ = build(tmp_path)
+    for hit in index.search("annual audit fee", k=10, user_groups=None):
+        assert "partners" not in hit.chunk.acl
+
+
 def test_partner_can_retrieve_fee_chunk(tmp_path):
     index, _ = build(tmp_path)
     hits = index.search("What is the annual audit fee for Karoo Fresh Produce (Pty) Ltd?",

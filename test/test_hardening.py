@@ -117,7 +117,7 @@ def make_index(tmp_path, embedder):
     write_txt(docs / "c.txt", "Client working papers are retained for 7 years.")
     write_txt(docs / "d.txt", "Either party may terminate with 30 days written notice.")
     write_txt(docs / "e.txt", "Remote access requires multi-factor authentication.")
-    idx = HybridIndex(embedder).build(ingest_folder(docs))
+    idx = HybridIndex(embedder).build(ingest_folder(docs, default_acl=["all"]))
     idx.save(tmp_path / "idx")
     return tmp_path / "idx"
 
@@ -143,7 +143,9 @@ def test_keyword_only_index_loads_without_an_embedder(tmp_path):
 
 
 def test_query_embedding_of_the_wrong_size_gives_a_clear_error(tmp_path):
-    idx = HybridIndex(HashEmbedder(64)).build(ingest_folder(make_index(tmp_path, None).parent / "docs"))
+    idx = HybridIndex(HashEmbedder(64)).build(
+        ingest_folder(make_index(tmp_path, None).parent / "docs", default_acl=["all"])
+    )
     idx.embedder = HashEmbedder(128)
     with pytest.raises(ValueError, match="different embedder"):
         idx.search("audit fee", user_groups=["all"])
@@ -199,7 +201,9 @@ def test_unanswerable_passes_only_on_a_genuine_refusal():
 
     d = Path(tempfile.mkdtemp())
     write_all(d)
-    idx = HybridIndex(HashEmbedder()).build(ingest_folder(d / "docs"))
+    idx = HybridIndex(HashEmbedder()).build(
+        ingest_folder(d / "docs", acl=json.loads((d / "acl.json").read_text()))
+    )
     qs = [q for q in json.loads((d / "questions.json").read_text()) if q["kind"] == "unanswerable"]
 
     class Garbage:
