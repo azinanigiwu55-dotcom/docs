@@ -1,0 +1,33 @@
+Metadata-Version: 2.4
+Name: private-doc-qa
+Version: 0.2.0
+Summary: Tenant- and ACL-aware, citation-first Q&A for organizational documents
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: pypdf
+Requires-Dist: python-docx
+Requires-Dist: reportlab
+Requires-Dist: rank-bm25
+Requires-Dist: requests
+Provides-Extra: embeddings
+Requires-Dist: sentence-transformers; extra == "embeddings"
+Provides-Extra: hf
+Requires-Dist: torch; extra == "hf"
+Requires-Dist: transformers; extra == "hf"
+Requires-Dist: accelerate; extra == "hf"
+Provides-Extra: quant
+Requires-Dist: bitsandbytes; extra == "quant"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
+Requires-Dist: fastapi>=0.110; extra == "dev"
+Requires-Dist: python-multipart>=0.0.9; extra == "dev"
+Requires-Dist: python-dotenv>=1.0; extra == "dev"
+Provides-Extra: api
+Requires-Dist: fastapi>=0.110; extra == "api"
+Requires-Dist: uvicorn[standard]>=0.27; extra == "api"
+Requires-Dist: python-multipart>=0.0.9; extra == "api"
+Requires-Dist: python-dotenv>=1.0; extra == "api"
+Requires-Dist: pydantic>=2.6; extra == "api"
+Dynamic: license-file

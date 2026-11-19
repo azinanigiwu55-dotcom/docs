@@ -1,0 +1,3 @@
+[console_scripts]
+docqa = docqa.cli:main
+docqa-api = docqa.api:run
