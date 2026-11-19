@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .grounding import best_quote, ungrounded_figures
+from .grounding import best_quote, ungrounded_figures, unsupported_claims
 from .index import HybridIndex, Hit, tokenize
 from .profile import DEFAULT_NOT_FOUND_TEXT, Profile
 from .prompts import SYSTEM_PROMPT, build_messages, build_system_prompt  # noqa: F401  (re-exported)
@@ -109,6 +109,7 @@ class Answer:
     raw: str = ""
     latency_s: float = 0.0
     ungrounded: list[str] = field(default_factory=list)   # figures not found in cited sources
+    unsupported: list[str] = field(default_factory=list)
 
 
 def log_audit(path: str | Path, user: str, question: str, ans: Answer,
@@ -125,6 +126,8 @@ def log_audit(path: str | Path, user: str, question: str, ans: Answer,
     }
     if ans.ungrounded:
         record["ungrounded_figures"] = ans.ungrounded
+    if ans.unsupported:
+        record["unsupported_claims"] = ans.unsupported
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -139,18 +142,19 @@ def clean_citations(text: str, n_sources: int) -> str:
 def answer(question: str, index: HybridIndex, backend, k: int | None = None,
            user_groups: list[str] | None = None, user: str = "anonymous",
            audit_path: str | Path | None = None, require_citation: bool = True,
-           profile: Profile | None = None) -> Answer:
+           profile: Profile | None = None, tenant_id: str | None = None) -> Answer:
     """Answer one question for one user under one customer profile.
 
     Order of events: expand the query with the customer's vocabulary, search only
     what the user may read, drop weak hits (if configured), ask the model, then
-    accept the answer only if it cites a real source and every figure in it
-    appears in what it cited.
+    accept the answer only if it cites real sources, its figures occur in those
+    sources, and each cited sentence has lexical support in its cited evidence.
     """
     p = profile or Profile()
     k = k or p.k
     t0 = time.time()
-    hits = index.search(p.expand_query(question), k=k, user_groups=user_groups)
+    hits = index.search(p.expand_query(question), k=k, user_groups=user_groups,
+                        tenant_id=tenant_id)
     found_any = bool(hits)
     if p.min_dense is not None:
         hits = [h for h in hits if h.dense is None or h.bm25 > 0 or h.dense >= p.min_dense]
@@ -169,13 +173,20 @@ def answer(question: str, index: HybridIndex, backend, k: int | None = None,
         elif require_citation and p.require_citation and not citations:
             ans = Answer(question, p.not_found_text, False, "no_citation", [], hits, raw)
         else:
-            cited_text = [hits[n - 1].chunk.text for n in nums] or [h.chunk.text for h in hits]
+            cited_sources = {n: hits[n - 1].chunk.text for n in nums}
+            cited_text = list(cited_sources.values())
             bad = ungrounded_figures(text, question, cited_text) if p.check_grounding else []
             if bad:
                 ans = Answer(question, p.not_found_text, False, "ungrounded", [], hits, raw,
                              ungrounded=bad)
             else:
-                ans = Answer(question, text, True, "ok", citations, hits, raw)
+                unsupported = (unsupported_claims(text, cited_sources)
+                               if p.check_grounding and citations else [])
+                if unsupported:
+                    ans = Answer(question, p.not_found_text, False, "unsupported_claim",
+                                 [], hits, raw, unsupported=unsupported)
+                else:
+                    ans = Answer(question, text, True, "ok", citations, hits, raw)
 
     ans.latency_s = time.time() - t0
     if audit_path:

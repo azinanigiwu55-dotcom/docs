@@ -30,7 +30,7 @@ class Chunk:
     doc: str            # path relative to the ingested folder, e.g. "clients/Acme.docx"
     loc: str            # "p.2" for PDFs, "§3" for other formats
     text: str
-    acl: list[str] = field(default_factory=lambda: ["all"])
+    acl: list[str] = field(default_factory=lambda: ["admin"])
 
     @property
     def doc_title(self) -> str:
@@ -192,7 +192,8 @@ def ingest_folder(
 
     ACL entries are keyed by path relative to docs_dir ("clients/Acme.docx"). A bare
     file name still works when only one file has that name. Files with no entry get
-    `default_acl` (default: readable by everyone); use ["admin"] for default-deny.
+    `default_acl` (default: deny-by-default). Use ["all"] only for documents
+    that every authenticated or public caller may read.
 
     Problems that should not pass silently (scanned PDFs with no text, ACL entries
     that match no file, ambiguous ACL keys) are appended to `issues` when a list is
@@ -200,7 +201,7 @@ def ingest_folder(
     """
     root = Path(docs_dir)
     acl = {k.replace("\\", "/"): v for k, v in (acl or {}).items()}
-    default_acl = default_acl or ["all"]
+    default_acl = ["admin"] if default_acl is None else default_acl
     problems: list[str] = issues if issues is not None else []
     start = len(problems)
 

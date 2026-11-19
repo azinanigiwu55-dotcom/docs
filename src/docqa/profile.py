@@ -1,4 +1,4 @@
-"""Per-customer configuration for a white-labelled deployment.
+"""Per-tenant configuration for a domain-neutral document assistant.
 
 One code base, many customers: everything that differs between companies lives
 in a small JSON "profile" instead of in the code. A profile controls who the
@@ -30,9 +30,9 @@ class Profile:
     # identity ------------------------------------------------------------
     tenant_id: str = "default"          # written to the audit log
     name: str = "Document Assistant"    # what the assistant calls itself
-    organisation: str = ""              # the customer's name
-    domain: str = "the organisation's documents"   # what the sources are
-    audience: str = "staff"             # who is asking
+    organisation: str = ""              # the tenant or organisation's name
+    domain: str = "the documents provided"
+    audience: str = "people using the service"
 
     # voice ---------------------------------------------------------------
     language: str = "English"
@@ -50,12 +50,12 @@ class Profile:
     k: int = 4
     max_chars: int = 900
     overlap: int = 150
-    default_acl: list[str] = field(default_factory=lambda: ["all"])
+    default_acl: list[str] = field(default_factory=lambda: ["admin"])
     min_dense: float | None = None      # drop weak embedding-only hits; None = off
 
     # safety switches -----------------------------------------------------
     require_citation: bool = True
-    check_grounding: bool = True        # reject figures that are not in the cited sources
+    check_grounding: bool = True        # reject unsupported claims and figures
 
     def __post_init__(self) -> None:
         if self.answer_style not in ANSWER_STYLES:

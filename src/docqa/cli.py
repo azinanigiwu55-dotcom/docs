@@ -72,7 +72,8 @@ def main(argv: list[str] | None = None) -> None:
         a.add_argument("--profile", default=None, help="customer profile JSON (prompt, tone, rules)")
         if name == "ask":
             a.add_argument("question")
-            a.add_argument("--groups", default="all", help="comma-separated user groups")
+            a.add_argument("--groups", default=None,
+                           help="comma-separated groups resolved from your identity provider")
             a.add_argument("--audit", default=None)
         else:
             a.add_argument("--questions", required=True)
@@ -94,6 +95,13 @@ def main(argv: list[str] | None = None) -> None:
         idx.save(args.out)
         print(f"Indexed {len(chunks)} chunks from {len({c.doc for c in chunks})} documents -> {args.out}")
     elif args.cmd == "ask":
+        if not args.groups:
+            raise SystemExit(
+                "ERROR: --groups is required. Resolve the caller's groups from the "
+                "identity provider before invoking docqa."
+            )
+        if not Path(args.index).is_dir():
+            raise SystemExit(f"ERROR: index directory not found: {args.index}")
         idx = HybridIndex.load(args.index, make_embedder(args.embedder, args.index))
         ans = answer(args.question, idx, make_backend(args), k=args.k,
                      user_groups=parse_groups(args.groups), audit_path=args.audit,

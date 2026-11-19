@@ -1,9 +1,7 @@
-"""Hybrid (keyword + embedding) search with permission filtering.
+"""Offline hybrid (keyword + embedding) search with permission filtering.
 
-The store is deliberately tiny and in-memory so it runs anywhere, with no
-database and no Docker. The public surface (build / search / save / load) is
-small on purpose: swapping in Postgres + pgvector later means reimplementing
-this one class, not touching the rest of the pipeline.
+This in-memory implementation supports local evaluation and the CLI. The HTTP
+service uses SupabaseVectorStore for persisted, tenant-scoped retrieval.
 """
 from __future__ import annotations
 
@@ -105,17 +103,28 @@ class HybridIndex:
 
     # -- permissions ----------------------------------------------------
     def _visible(self, user_groups: list[str] | None) -> list[int]:
-        allowed = set(user_groups or []) | {"all"}
-        return [i for i, c in enumerate(self.chunks) if allowed & set(c.acl)]
+        """Return chunks visible to an explicitly resolved principal.
+
+        An unauthenticated or unresolved caller has no private groups. Documents
+        explicitly marked with the reserved "all" ACL remain public.
+        """
+        allowed = set(user_groups or [])
+        return [
+            i for i, c in enumerate(self.chunks)
+            if "all" in c.acl or allowed & set(c.acl)
+        ]
 
     # -- searching ------------------------------------------------------
     def search(self, query: str, k: int = 4, user_groups: list[str] | None = None,
-               pool: int = 30) -> list[Hit]:
+               pool: int = 30, tenant_id: str | None = None) -> list[Hit]:
         """Return the top-k chunks the given user is allowed to see.
 
         Permission filtering happens BEFORE ranking, so restricted text can
         never reach the model or leak through scores.
         """
+        del tenant_id
+        if k < 1 or pool < 1:
+            raise ValueError("k and pool must be positive")
         visible = self._visible(user_groups)
         if not visible:
             return []
@@ -139,7 +148,8 @@ class HybridIndex:
             if bm25_vis[j] > 0:
                 fused[j] = fused.get(j, 0.0) + 1.0 / (self.rrf_k + rank + 1)
         if dense_vis is not None:
-            for rank, j in enumerate(np.argsort(-dense_vis)[:pool]):
+            dense_order = [j for j in np.argsort(-dense_vis)[:pool] if dense_vis[j] > 0]
+            for rank, j in enumerate(dense_order):
                 fused[j] = fused.get(j, 0.0) + 1.0 / (self.rrf_k + rank + 1)
 
         top = sorted(fused.items(), key=lambda kv: -kv[1])[:k]
