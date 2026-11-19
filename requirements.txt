@@ -1,0 +1,7 @@
+numpy
+pypdf
+python-docx
+reportlab
+rank-bm25
+requests
+sentence-transformers
