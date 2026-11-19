@@ -21,7 +21,7 @@
   "k": 5,
   "max_chars": 1100,
   "overlap": 200,
-  "default_acl": ["all"],
+  "default_acl": ["admin"],
   "require_citation": true,
   "check_grounding": true
 }
