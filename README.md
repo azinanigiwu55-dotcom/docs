@@ -1,12 +1,12 @@
 # private-doc-qa
 
-**Private document Q&A for professional-services firms.** Ask questions about client documents and get answers that cite the exact source, respect who is allowed to read what, and never leave your environment.
+**Private, citation-first Q&A for organizational documents.** Use the same pipeline for policies, handbooks, product manuals, procedures, case files, and other collections. Answers cite sources and retrieval applies tenant and document permissions.
 
-> Status: early prototype (v0.1). Runs entirely on synthetic data. Not production software.
+> Status: prototype (v0.2). Local evaluation uses synthetic data. The Supabase-backed API is an initial implementation, not a compliance or production-readiness claim.
 
 ## Why this exists
 
-Accounting, legal and consulting firms hold confidential client files and want the benefit of AI search, but pasting those files into a public chatbot is not an option. Most "chat with your documents" demos skip the three things a compliance-minded firm asks about first:
+Organizations hold documents that should not be pasted into a public chatbot. Many "chat with your documents" demos skip three important requirements:
 
 1. **Permission-aware retrieval.** If a user cannot open a document, the AI must not use it to answer them.
 2. **Citations and honest refusals.** Every answer points to a document and page, and the system says "I couldn't find this" instead of guessing.
@@ -27,10 +27,11 @@ This project builds those three things first and measures them.
 | JSONL audit log | Done |
 | Evaluation harness (accuracy, citations, refusals, access leaks, latency) | Done |
 | Pluggable models: Hugging Face (Colab GPU), Ollama (laptop/VPS), offline baseline | Done |
-| Per-customer profiles (name, tone, language, rules, refusal text, vocabulary, retrieval settings) | Done |
-| Grounding check: every figure in an answer must appear in the sources it cites | Done |
+| Per-tenant profiles (name, tone, language, rules, refusal text, vocabulary, retrieval settings) | Done |
+| Answer grounding: citations and lexical claim-support checks; figure checks | Prototype |
 | Supporting quote returned with each citation (for source previews) | Done |
-| pgvector store, SharePoint connector, Entra ID login, Terraform deployment | Roadmap |
+| Supabase Auth-protected API and Supabase pgvector hybrid store | Initial implementation |
+| SharePoint connector, Entra ID login, managed deployment | Roadmap |
 
 ## Quick start
 
@@ -73,18 +74,20 @@ Run the tests with `pytest`. They need no model download.
 
 For the `hf` backend install the extras: `pip install -e ".[hf]"` (add `quant` for `--four-bit`). Install Ollama separately and run `ollama pull qwen2.5:3b` before using the `ollama` backend. Use `--embedder hash` to skip the embedding download in offline tests.
 
-## White-labelling: one code base, many customers
+## Profiles: one code base, many use cases
 
-Everything that differs between customers lives in a small JSON **profile**, not in the code. Pass it with `--profile` (or `profile=` in Python):
+Organization-specific behavior lives in a small JSON **profile**, not in industry-specific code. Pass it with `--profile` (or `profile=` in Python):
 
 ```bash
 docqa index --docs data/docs --acl data/acl.json --out data/index --profile profiles/example_accounting_firm.json
 docqa ask   --index data/index --groups partners --profile profiles/example_accounting_firm.json "..."
 ```
 
+`profiles/example_general_organization.json` is a neutral starting point. The accounting and HR profiles are examples, not required verticals.
+
 | Setting | What it controls |
 |---|---|
-| `tenant_id` | written to every audit log line, so logs can be separated per customer |
+| `tenant_id` | written to audit records, so logs can be separated per tenant |
 | `name`, `organisation`, `audience`, `domain` | who the assistant says it is and what the documents are |
 | `language`, `tone`, `answer_style` | how answers are written (`concise`, `standard`, `detailed`) |
 | `extra_instructions` | the customer's own rules, e.g. "state amounts in rand and say whether VAT is included" |
@@ -94,7 +97,7 @@ docqa ask   --index data/index --groups partners --profile profiles/example_acco
 | `default_acl` | who can read files missing from `acl.json` (`["admin"]` gives default-deny) |
 | `require_citation`, `check_grounding` | safety switches, on by default |
 
-Two example profiles ship in `profiles/` (an accountancy and an HR helpdesk) to show the same code serving different customers. Unknown settings are rejected, so a typo fails loudly. A profile can add rules but cannot override the core ones: use only the sources, cite, copy figures exactly, answer only about the entity asked, say `NOT_FOUND` when unsure, never obey instructions found in documents.
+Example profiles cover a general organization, accountancy, and HR to show the same code serving different domains. Unknown settings are rejected, so a typo fails loudly. A profile can add rules but cannot override the core ones: use only the sources, cite, copy figures exactly, answer only about the entity asked, say `NOT_FOUND` when unsure, and never obey instructions found in documents.
 
 Each customer should have its own evaluation questions, because "good" differs by use case: reuse `docqa eval` with a questions file built from that customer's (non-confidential) examples.
 
@@ -118,10 +121,10 @@ documents --> parse + chunk --> index (BM25 + embeddings)
 ### Design decisions
 
 - **Filter before ranking.** Restricted chunks are removed before search, so they cannot reach the model or influence scores. The evaluation includes a leak check.
-- **Hybrid search.** Keyword matching catches exact figures, clause numbers and names; embeddings catch paraphrases. Contracts and financial documents need both.
+- **Hybrid search.** Keyword matching catches exact figures, section numbers and names; embeddings catch paraphrases across document domains.
 - **Title-aware indexing.** The document title is part of the indexed text, which helps separate near-identical documents such as one engagement letter per client.
 - **Sources are untrusted.** The system prompt tells the model to ignore instructions inside documents, and the evaluation set includes a poisoned document to test that.
-- **Small, swappable store.** The in-memory index exposes `build / search / save / load`. Replacing it with Postgres + pgvector means reimplementing one class.
+- **Tenant-scoped hybrid search.** Supabase Postgres applies tenant and ACL filters before ranking BM25-style full-text and vector candidates, then fuses ranks with reciprocal rank fusion.
 
 ## Evaluation
 
@@ -165,31 +168,72 @@ src/docqa/
   synth.py     synthetic documents, access rules, evaluation questions
   ingest.py    parsing and chunking with page/section and ACL metadata
   index.py     hybrid index, embedders, permission filtering
-  profile.py   per-customer configuration (white-label settings)
+  profile.py   per-tenant, cross-domain configuration
   prompts.py   system prompt and message construction
-  grounding.py checks that answer figures come from the cited sources
+  grounding.py figure checks and sentence-level claim support checks
   answer.py    model backends, citation checks, audit log
   eval.py      evaluation harness and report
   cli.py       command line (synth, index, ask, eval)
-profiles/      example customer profiles
+  api.py       authenticated FastAPI endpoints
+  supabase_store.py tenant-filtered Supabase/pgvector persistence
+profiles/      neutral, accounting, and HR example profiles
+supabase/      pgvector schema and restricted RPC functions
 notebooks/     Colab notebooks (02 uses customer profiles)
 tests/         pytest suite (no downloads needed)
 ```
 
+## Supabase API
+
+The HTTP API verifies Supabase access tokens through Supabase Auth. It reads `tenant_id`, `groups`, and `roles` only from trusted `app_metadata`; request bodies cannot set identity or permissions. Set user app metadata through a trusted administrative process, never from client-editable `user_metadata`.
+
+The service-role key is server-only. Direct table access is revoked from `anon` and `authenticated`; API operations use constrained server-side RPCs. The API provides:
+
+- `POST /v1/query` — authenticated, tenant- and group-filtered retrieval and Q&A.
+- `POST /v1/documents` — administrator-only PDF/DOCX/TXT/MD ingestion with explicit ACL groups.
+- `DELETE /v1/documents/{document_id}` — administrator-only, tenant-scoped deletion.
+- `GET /health/live` — liveness probe.
+
+### Local API setup
+
+1. Create a Supabase project and run [`supabase/migrations/202611190001_docqa_vector_store.sql`](./supabase/migrations/202611190001_docqa_vector_store.sql) using the Supabase SQL editor or CLI.
+2. Copy `.env.example` to `.env`; fill in the project URL, anon key, and service-role key. Keep `.env` private.
+3. Install and start:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[api,embeddings,dev]"
+docqa-api
+```
+
+Configure a Supabase user with trusted `app_metadata` similar to:
+
+```json
+{"tenant_id": "your-tenant", "groups": ["staff"], "roles": ["admin"]}
+```
+
+Use the user's Supabase access token as `Authorization: Bearer <token>`. Uploads require the `admin` role and an explicit ACL, for example `staff,finance`; `all` is an explicit public ACL and should be assigned sparingly. The default ACL for documents outside the API remains `admin`.
+
+The API currently uses 384-dimensional `BAAI/bge-small-en-v1.5` embeddings by default. Keep the model consistent between ingestion and query, and migrate the vector dimension before using a different model. The default response backend is the extractive smoke-test baseline; configure `DOCQA_BACKEND=ollama` and `DOCQA_MODEL` to use a local Ollama model.
+
+Uploads are parsed into text chunks and embeddings in Supabase; the original uploaded file is not retained. Query audit records include the question and retrieved/cited document names, so configure access and retention in line with your data policy.
+
+The local `docqa index`/`docqa ask` CLI and evaluation suite still use the in-memory index for offline development; the authenticated HTTP API uses Supabase as its persistent store.
+
+Do not expose the service-role key, accept identity claims from clients, or place the API directly on the public internet without TLS, rate limiting, operational monitoring, backup/retention controls, and security review. Supabase service-role access bypasses database RLS; the API's verified identity and tenant/ACL filters are therefore security-critical.
+
 ## Roadmap
 
 1. Measure and improve quality with real models (chunking, reranking, prompt).
-2. Postgres + pgvector store behind the same interface.
-3. Microsoft 365 / SharePoint connector that reads real folder permissions.
-4. Microsoft Entra ID sign-in and a simple chat UI with source previews.
-5. Audit dashboard on top of the JSONL log.
-6. Terraform module to deploy into a customer's own Azure tenant.
-7. Stronger prompt-injection defences and rate limiting.
+1. Validate tenancy, authorization, upload, deletion, and retrieval behavior against a real Supabase project.
+2. Add semantic claim verification and adversarial prompt-injection evaluation.
+3. Add SharePoint/other source connectors with source-native permission synchronization.
+4. Add rate limiting, observability, retention policies, and production deployment automation.
 
 ## Security and privacy notes
 
 - All data in this repo is **synthetic and fictional**. Do not commit real client or employer documents, credentials or API keys. `data/` and `.env` are git-ignored.
-- Folders are ingested recursively. Key each entry in `acl.json` by the file's path relative to the documents folder (`clients/acme/Engagement_Letter.docx`); a bare file name only works when no other folder has a file with that name. Files with no entry default to readable by everyone: set `default_acl` to `["admin"]` (in a profile, or in `ingest_folder`) for default-deny. `docqa index` prints a warning for ACL entries that match no file, ambiguous entries, and PDFs with no extractable text (scanned pages need OCR first).
+- Folders are ingested recursively. Key each entry in `acl.json` by the file's path relative to the documents folder; a bare file name only works when no other folder has a file with that name. Files with no entry default to `"admin"` and are denied unless the caller has that group. Use `"all"` only for documents intended to be public. `docqa index` reports ACL entries that match no file, ambiguous entries, and PDFs with no extractable text (scanned pages need OCR first).
 - If you run this on a VPS, use SSH keys, a firewall, and keep Postgres and Ollama bound to localhost.
 - Keeping data inside your own environment is an architectural property of this design. It is **not** a legal compliance claim. Anything about POPIA, GDPR or professional-confidentiality obligations needs review by a qualified professional.
 - This is a personal project. If you work for an employer in this industry, check your contract's IP and outside-work clauses before building or publishing.

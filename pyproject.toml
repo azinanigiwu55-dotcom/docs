@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "private-doc-qa"
-version = "0.1.0"
-description = "Permission-aware, citation-first document Q&A that runs entirely in your own environment"
+version = "0.2.0"
+description = "Tenant- and ACL-aware, citation-first Q&A for organizational documents"
 requires-python = ">=3.10"
 dependencies = [
   "numpy",
@@ -21,10 +21,19 @@ embeddings = ["sentence-transformers"]
 # Local Hugging Face generation (the `hf` backend). Add `quant` for --four-bit.
 hf = ["torch", "transformers", "accelerate"]
 quant = ["bitsandbytes"]
-dev = ["pytest"]
+dev = ["pytest", "httpx>=0.27", "fastapi>=0.110", "python-multipart>=0.0.9", "python-dotenv>=1.0"]
+api = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+  "python-dotenv>=1.0",
+  "pydantic>=2.6",
+]
+
 
 [project.scripts]
 docqa = "docqa.cli:main"
+docqa-api = "docqa.api:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
